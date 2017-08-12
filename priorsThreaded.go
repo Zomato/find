@@ -63,6 +63,7 @@ func worker(id int, jobs <-chan jobA, results chan<- resultA) {
 
 // optimizePriorsThreaded generates the optimized prior data for Naive-Bayes classification.
 func optimizePriorsThreaded(group string) error {
+	_, bucketIds := getAllBucketsInDb(group);
 	// Debug.Println("Optimizing priors for " + group)
 	// generate the fingerprintsInMemory
 	fingerprintsInMemory := make(map[string]Fingerprint)
@@ -73,14 +74,16 @@ func optimizePriorsThreaded(group string) error {
 		return err
 	}
 	err = db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte("fingerprints"))
-		if b == nil {
-			return fmt.Errorf("No fingerprint bucket")
-		}
-		c := b.Cursor()
-		for k, v := c.First(); k != nil; k, v = c.Next() {
-			fingerprintsInMemory[string(k)] = loadFingerprint(v)
-			fingerprintsOrdering = append(fingerprintsOrdering, string(k))
+		for _, bucket := range bucketIds {
+			b := tx.Bucket([]byte(bucket))
+			if b == nil {
+				return fmt.Errorf("No fingerprint bucket")
+			}
+			c := b.Cursor()
+			for k, v := c.First(); k != nil; k, v = c.Next() {
+				fingerprintsInMemory[string(k)] = loadFingerprint(v)
+				fingerprintsOrdering = append(fingerprintsOrdering, string(k))
+			}
 		}
 		return nil
 	})

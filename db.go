@@ -181,3 +181,28 @@ func getMacCountByLoc(group string) (macCountByLoc map[string]map[string]int) {
 	})
 	return
 }
+
+func getAllBucketsInDb(group string) (error, []string) {
+	var bucketIds []string
+    db, err := bolt.Open(path.Join(RuntimeArgs.SourcePath, group+".db"), 0600, nil)
+    if err != nil {
+        log.Fatal(err)
+        return err, bucketIds
+    }
+    err = db.View(func(tx *bolt.Tx) error {
+        b := tx.Bucket([]byte("bucketIndexes"))
+        if b == nil {
+            return fmt.Errorf("No fingerprint bucket")
+        }
+        c := b.Cursor()
+        for k, v := c.First(); k != nil; k, v = c.Next() {
+            bucketIds = append(bucketIds, string(v))
+        }
+        return nil
+    })
+    db.Close()
+    if err != nil {
+        return err, bucketIds
+    }
+    return nil, bucketIds
+}

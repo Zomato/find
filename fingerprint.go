@@ -12,6 +12,7 @@ import (
 	"log"
 	"math"
 	"strconv"
+	"math/rand"
 
 	"net/http"
 	"path"
@@ -24,17 +25,24 @@ import (
 
 // Fingerprint is the prototypical information from the fingerprinting device
 // IF you change Fingerprint, follow these steps to re-generate fingerprint_ffjson.go
-// find ./ -name "*.go" -type f | xargs sed -i  's/package main/package main/g'
+// find ./ -name "*.go" -type f | xargs sed -i  's/package main/package find/g'
 // Uncomment json.Marshal/Unmarshal functions
 // $GOPATH/bin/ffjson fingerprint.go
-// find ./ -name "*.go" -type f | xargs sed -i  's/package main/package main/g'
+// find ./ -name "*.go" -type f | xargs sed -i  's/package find/package main/g'
 // Comment json.Marshal/Unmarshal functions
 type Fingerprint struct {
 	Group           string   `json:"group"`
+	Collectorid     string   `json:"collectorid"`
+	Transactionid   string   `json:"transactionid"`
 	Username        string   `json:"username"`
 	Location        string   `json:"location"`
 	Timestamp       int64    `json:"timestamp"`
 	WifiFingerprint []Router `json:"wifi-fingerprint"`
+}
+
+type TransactionRow struct {
+    Timestamp string `json:"timestamp"`
+    Location string `json:"Location"`
 }
 
 // Router is the router information for each invdividual mac address
@@ -59,14 +67,14 @@ var jsonExample = `{
 // compression 9 us -> 900 us
 func dumpFingerprint(res Fingerprint) []byte {
 	dumped, _ := res.MarshalJSON()
-	//dumped, _ := json.Marshal(res)
+	// dumped, _ := json.Marshal(res)
 	return compressByte(dumped)
 }
 
 // compression 30 us -> 600 us
 func loadFingerprint(jsonByte []byte) Fingerprint {
 	res := Fingerprint{}
-	//json.Unmarshal(decompressByte(jsonByte), res)
+	// json.Unmarshal(decompressByte(jsonByte), res)
 	res.UnmarshalJSON(decompressByte(jsonByte))
 	filterFingerprint(&res)
 	return res
@@ -107,14 +115,67 @@ func cleanFingerprint(res *Fingerprint) {
 	}
 }
 
-func putFingerprintIntoDatabase(res Fingerprint, database string) error {
+func setGroupBuckets(bucketId string, group string) error {
+	db, err := bolt.Open(path.Join(RuntimeArgs.SourcePath, group+".db"), 0600, nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+	err = db.Update(func(tx *bolt.Tx) error {
+		bucket, err2 := tx.CreateBucketIfNotExists([]byte("bucketIndexes"))
+		if err2 != nil {
+			return fmt.Errorf("create bucket: %s", err2)
+		}
+
+		err2 = bucket.Put([]byte(bucketId), []byte(bucketId))
+		if err2 != nil {
+			return fmt.Errorf("could add to bucket: %s", err2)
+		}
+		return err2
+	})
+	db.Close()
+	return err
+}
+
+func setCollectorTransactionIds(Collectorid string, Transactionid string, Location string, Timestamp int64) error {
+	if Timestamp == 0 {
+		Timestamp = time.Now().Unix()
+	}
+	tr := TransactionRow{strconv.FormatInt(Timestamp, 10), Location}
+	btr, erro := json.Marshal(tr)
+	if erro != nil {
+		log.Fatal(erro)
+	}
+	db, err := bolt.Open(path.Join(RuntimeArgs.SourcePath, Collectorid+".db"), 0600, nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+	err = db.Update(func(tx *bolt.Tx) error {
+		bucket, err2 := tx.CreateBucketIfNotExists([]byte("LastTransactions"))
+		if err2 != nil {
+			return fmt.Errorf("create bucket: %s", err2)
+		}
+
+		err2 = bucket.Put([]byte(Transactionid), []byte(btr))
+		if err2 != nil {
+			return fmt.Errorf("could add to bucket: %s", err2)
+		}
+		return err2
+	})
+	db.Close()
+	return err
+}
+
+func putFingerprintIntoDatabase(res Fingerprint) error {
+	setGroupBuckets(res.Location, res.Group)
+	setCollectorTransactionIds(res.Collectorid, res.Transactionid, res.Location, res.Timestamp)
+
 	db, err := bolt.Open(path.Join(RuntimeArgs.SourcePath, res.Group+".db"), 0600, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	err = db.Update(func(tx *bolt.Tx) error {
-		bucket, err2 := tx.CreateBucketIfNotExists([]byte(database))
+		bucket, err2 := tx.CreateBucketIfNotExists([]byte(res.Location))
 		if err2 != nil {
 			return fmt.Errorf("create bucket: %s", err2)
 		}
@@ -122,7 +183,13 @@ func putFingerprintIntoDatabase(res Fingerprint, database string) error {
 		if res.Timestamp == 0 {
 			res.Timestamp = time.Now().UnixNano()
 		}
-		err2 = bucket.Put([]byte(strconv.FormatInt(res.Timestamp, 10)), dumpFingerprint(res))
+		s1 := rand.NewSource(time.Now().UnixNano())
+		r1 := rand.New(s1)
+		randomNo := strconv.Itoa(r1.Intn(10000000))
+		fingerprintKeyMap := []string{}
+		fingerprintKeyMap = append(fingerprintKeyMap, string(randomNo), ":", res.Collectorid, ":", res.Transactionid)
+		fingerprintKeyString := strings.Join(fingerprintKeyMap, "")
+		err2 = bucket.Put([]byte(fingerprintKeyString), dumpFingerprint(res))
 		if err2 != nil {
 			return fmt.Errorf("could add to bucket: %s", err2)
 		}
@@ -182,7 +249,7 @@ func learnFingerprint(jsonFingerprint Fingerprint) (string, bool) {
 	if len(jsonFingerprint.WifiFingerprint) == 0 {
 		return "No fingerprints found to insert, see API", false
 	}
-	putFingerprintIntoDatabase(jsonFingerprint, "fingerprints")
+	putFingerprintIntoDatabase(jsonFingerprint)
 	go setLearningCache(strings.ToLower(jsonFingerprint.Group), true)
 	message := "Inserted fingerprint containing " + strconv.Itoa(len(jsonFingerprint.WifiFingerprint)) + " APs for " + jsonFingerprint.Username + " (" + jsonFingerprint.Group + ") at " + jsonFingerprint.Location
 	return message, true
@@ -190,7 +257,7 @@ func learnFingerprint(jsonFingerprint Fingerprint) (string, bool) {
 
 func trackFingerprint(jsonFingerprint Fingerprint) (string, bool, string, map[string]float64, map[string]float64, map[string]float64) {
 	// Classify with filter fingerprint
-	fullFingerprint := jsonFingerprint
+	// fullFingerprint := jsonFingerprint
 	filterFingerprint(&jsonFingerprint)
 
 	bayes := make(map[string]float64)
@@ -236,7 +303,7 @@ func trackFingerprint(jsonFingerprint Fingerprint) (string, bool, string, map[st
 	jsonFingerprint.Location = locationGuess1
 
 	// Insert full fingerprint
-	putFingerprintIntoDatabase(fullFingerprint, "fingerprints-track")
+	// putFingerprintIntoDatabase(fullFingerprint, "fingerprints-track")
 
 	Debug.Println("Tracking fingerprint containing " + strconv.Itoa(len(jsonFingerprint.WifiFingerprint)) + " APs for " + jsonFingerprint.Username + " (" + jsonFingerprint.Group + ") at " + jsonFingerprint.Location + " (guess)")
 	message := "Current location: " + locationGuess1 //+ " (" + strconv.Itoa(int(percentGuess1)) + "% confidence)"

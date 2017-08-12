@@ -38,6 +38,7 @@ type Svm struct {
 }
 
 func dumpFingerprintsSVM(group string) error {
+	_, bucketIds := getAllBucketsInDb(group);
 	macs := make(map[string]int)
 	locations := make(map[string]int)
 	macsFromID := make(map[string]string)
@@ -52,21 +53,23 @@ func dumpFingerprintsSVM(group string) error {
 	defer db.Close()
 
 	db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte("fingerprints"))
-		c := b.Cursor()
-		for k, v := c.First(); k != nil; k, v = c.Next() {
-			v2 := loadFingerprint(v)
-			for _, fingerprint := range v2.WifiFingerprint {
-				if _, ok := macs[fingerprint.Mac]; !ok {
-					macs[fingerprint.Mac] = macI
-					macsFromID[strconv.Itoa(macI)] = fingerprint.Mac
-					macI++
+		for _, bucket := range bucketIds {
+			b := tx.Bucket([]byte(bucket))
+			c := b.Cursor()
+			for k, v := c.First(); k != nil; k, v = c.Next() {
+				v2 := loadFingerprint(v)
+				for _, fingerprint := range v2.WifiFingerprint {
+					if _, ok := macs[fingerprint.Mac]; !ok {
+						macs[fingerprint.Mac] = macI
+						macsFromID[strconv.Itoa(macI)] = fingerprint.Mac
+						macI++
+					}
 				}
-			}
-			if _, ok := locations[v2.Location]; !ok {
-				locations[v2.Location] = locationI
-				locationsFromID[strconv.Itoa(locationI)] = v2.Location
-				locationI++
+				if _, ok := locations[v2.Location]; !ok {
+					locations[v2.Location] = locationI
+					locationsFromID[strconv.Itoa(locationI)] = v2.Location
+					locationI++
+				}
 			}
 		}
 		return nil
@@ -74,11 +77,13 @@ func dumpFingerprintsSVM(group string) error {
 
 	svmData := ""
 	err = db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte("fingerprints"))
-		c := b.Cursor()
-		for k, v := c.First(); k != nil; k, v = c.Next() {
-			v2 := loadFingerprint(v)
-			svmData = svmData + makeSVMLine(v2, macs, locations)
+		for _, bucket := range bucketIds {
+			b := tx.Bucket([]byte(bucket))
+			c := b.Cursor()
+			for k, v := c.First(); k != nil; k, v = c.Next() {
+				v2 := loadFingerprint(v)
+				svmData = svmData + makeSVMLine(v2, macs, locations)
+			}
 		}
 		return nil
 	})
