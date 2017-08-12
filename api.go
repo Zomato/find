@@ -955,3 +955,110 @@ func whereAmI(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"message": "Could not bind JSON - did you not send it as a JSON?", "success": false})
 	}
 }
+
+func getCollectorLastTransactions(c *gin.Context) {
+	c.Writer.Header().Set("Content-Type", "application/json")
+	c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
+	c.Writer.Header().Set("Access-Control-Max-Age", "86400")
+	c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE, UPDATE")
+	c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, X-Max")
+	c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
+	Collectorid := c.DefaultQuery("collectorid", "noneasdf")
+	if Collectorid != "noneasdf" {
+		if !groupExists(Collectorid) {
+			c.JSON(http.StatusOK, gin.H{"message": "You dont have any previous transactions", "success": false})
+			return
+		}
+
+		LastTransactions := make(map[string]TransactionRow)
+	    db, err := bolt.Open(path.Join(RuntimeArgs.SourcePath, Collectorid+".db"), 0600, nil)
+		if err != nil {
+			log.Fatal(err)
+		}
+	    err = db.View(func(tx *bolt.Tx) error {
+	        b := tx.Bucket([]byte("LastTransactions"))
+	        if b == nil {
+	            return fmt.Errorf("No fingerprint bucket")
+	        }
+	        c := b.Cursor()
+	        for k, v := c.First(); k != nil; k, v = c.Next() {
+				var tr TransactionRow
+				json.Unmarshal(v, &tr)
+				LastTransactions[string(k)] = tr;
+	        }
+	        return nil
+	    })
+	    db.Close()
+
+		c.JSON(http.StatusOK, gin.H{"message": "Correctly found", "success": true, "LastTransactions": LastTransactions})
+	} else {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Error parsing request"})
+	}
+}
+
+func deletetransaction(c *gin.Context) {
+	c.Writer.Header().Set("Content-Type", "application/json")
+	c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
+	c.Writer.Header().Set("Access-Control-Max-Age", "86400")
+	c.Writer.Header().Set("Access-Control-Allow-Methods", "GET")
+	c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, X-Max")
+	c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
+
+	Transactionid := c.DefaultQuery("transaction_id", "noneasdf")
+	Collectorid := c.DefaultQuery("collector_id", "noneasdf")
+	Location := c.DefaultQuery("location", "noneasdf")
+	Group := c.DefaultQuery("group", "noneasdf")
+
+	if Transactionid != "noneasdf" && Collectorid != "noneasdf" && Location != "noneasdf" && Group != "noneasdf"{
+		if !groupExists(Collectorid) {
+			c.JSON(http.StatusOK, gin.H{"message": "You dont have any previous transactions", "success": false})
+			return
+		}
+
+
+	    db1, err1 := bolt.Open(path.Join(RuntimeArgs.SourcePath, Group+".db"), 0600, nil)
+		if err1 != nil {
+			log.Fatal(err1)
+		}
+		db1.Update(func(tx *bolt.Tx) error {
+			b := tx.Bucket([]byte(Location))
+			if b != nil {
+				c := b.Cursor()
+				for k, v := c.Last(); k != nil; k, v = c.Prev() {
+					fp := loadFingerprint(v)
+					if fp.Transactionid == Transactionid {
+						b.Delete(k)
+					}
+				}
+			}
+			return nil
+		})
+	    db1.Close()
+
+
+	    db, err := bolt.Open(path.Join(RuntimeArgs.SourcePath, Collectorid+".db"), 0600, nil)
+		if err != nil {
+			log.Fatal(err)
+		}
+		db.Update(func(tx *bolt.Tx) error {
+			b := tx.Bucket([]byte("LastTransactions"))
+			if b != nil {
+				c := b.Cursor()
+				for k, _ := c.Last(); k != nil; k, _ = c.Prev() {
+					if string(k) == Transactionid {
+						b.Delete(k)
+					}
+				}
+			}
+			return nil
+		})
+	    db.Close()
+
+		c.JSON(http.StatusOK, gin.H{"message": "Successfully deleted", "success": true})
+	} else {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Error parsing request"})
+	}
+}
+
+
+

@@ -12,7 +12,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
-	"net/http"
+	// "net/http"
 	"os"
 	"os/exec"
 	"path"
@@ -67,7 +67,7 @@ func main() {
 		Build = "devdevdevdevdevdevdev"
 	}
 	// Bing flags for changing parameters of FIND
-	flag.StringVar(&RuntimeArgs.Port, "p", ":8003", "port to bind")
+	flag.StringVar(&RuntimeArgs.Port, "p", ":80", "port to bind")
 	flag.StringVar(&RuntimeArgs.Socket, "s", "", "unix socket")
 	flag.StringVar(&RuntimeArgs.ServerCRT, "crt", "", "location of ssl crt")
 	flag.StringVar(&RuntimeArgs.ServerKey, "key", "", "location of ssl key")
@@ -169,7 +169,7 @@ cp svm-train /usr/local/bin/`)
 	r := gin.Default()
 
 	// Load templates
-	r.LoadHTMLGlob(path.Join(RuntimeArgs.Cwd, "templates/*"))
+	// r.LoadHTMLGlob(path.Join(RuntimeArgs.Cwd, "templates/*"))
 
 	// Load static files (if they are not hosted by external service)
 	r.Static("static/", path.Join(RuntimeArgs.Cwd, "static/"))
@@ -179,54 +179,64 @@ cp svm-train /usr/local/bin/`)
 	r.Use(sessions.Sessions("mysession", store))
 
 	// 404-page redirects to login
-	r.NoRoute(func(c *gin.Context) {
-		c.HTML(http.StatusOK, "login.tmpl", gin.H{
-			"ErrorMessage": "Please login first.",
-		})
-	})
+	// r.NoRoute(func(c *gin.Context) {
+	// 	c.HTML(http.StatusOK, "login.tmpl", gin.H{
+	// 		"ErrorMessage": "Please login first.",
+	// 	})
+	// })
+
+	// authorized := r.Group("/", gin.BasicAuth(gin.Accounts{
+	// 	"x":    "y",
+	// }))
+
+	r.POST("/learn", learnFingerprintPOST)
+	r.POST("/track", trackFingerprintPOST)
+	r.GET("/status", getStatus)
+	r.GET("/lasttransactions", getCollectorLastTransactions)
+	r.GET("/deletetransaction", deletetransaction)
+
 
 	// r.PUT("/message", putMessage)
 
 	// Routes for logging in and viewing dashboards (routes.go)
-	r.GET("/", slash)
-	r.GET("/login", slashLogin)
-	r.POST("/login", slashLoginPOST)
-	r.GET("/logout", slashLogout)
-	r.GET("/dashboard/:group", slashDashboard)
-	r.GET("/explore/:group/:network/:location", slashExplore2)
-	r.GET("/pie/:group/:network/:location", slashPie)
+	// r.GET("/", slash)
+	// r.GET("/login", slashLogin)
+	// r.POST("/login", slashLoginPOST)
+	// r.GET("/logout", slashLogout)
+	// r.GET("/dashboard/:group", slashDashboard)
+	// r.GET("/explore/:group/:network/:location", slashExplore2)
+	// r.GET("/pie/:group/:network/:location", slashPie)
 
 	// Routes for performing fingerprinting (fingerprint.go)
-	r.POST("/learn", learnFingerprintPOST)
-	r.POST("/track", trackFingerprintPOST)
 
 	// Routes for MQTT (mqtt.go)
-	r.PUT("/mqtt", putMQTT)
+	// r.PUT("/mqtt", putMQTT)
 
 	// Routes for API access (api.go)
-	r.GET("/location", getUserLocations)
-	r.GET("/locations", getLocationList)
-	r.GET("/editname", editName)
-	r.GET("/editusername", editUserName)
-	r.GET("/editnetworkname", editNetworkName)
-	r.DELETE("/location", deleteLocation)
-	r.DELETE("/locations", deleteLocations)
-	r.DELETE("/user", deleteUser)
-	r.DELETE("/database", deleteDatabase)
-	r.GET("/calculate", calculate)
-	r.GET("/status", getStatus)
-	r.GET("/userlocs", userLocations) // to be deprecated
-	r.GET("/whereami", whereAmI)      // to be deprecated
-	r.PUT("/mixin", putMixinOverride)
-	r.PUT("/cutoff", putCutoffOverride)
-	r.PUT("/database", migrateDatabase)
-	r.GET("/lastfingerprint", apiGetLastFingerprint)
+	// r.GET("/location", getUserLocations)
+	// r.GET("/locations", getLocationList)
+	// r.GET("/editname", editName)
+	// r.GET("/editusername", editUserName)
+	// r.GET("/editnetworkname", editNetworkName)
+	// r.DELETE("/location", deleteLocation)
+	// r.DELETE("/locations", deleteLocations)
+	// r.DELETE("/user", deleteUser)
+	// r.DELETE("/database", deleteDatabase)
+	// r.GET("/calculate", calculate)
+	
+	// r.GET("/userlocs", userLocations) // to be deprecated
+	// r.GET("/whereami", whereAmI)      // to be deprecated
+	// r.PUT("/mixin", putMixinOverride)
+	// r.PUT("/cutoff", putCutoffOverride)
+	// r.PUT("/database", migrateDatabase)
+	// r.GET("/lastfingerprint", apiGetLastFingerprint)
 
 	// Load and display the logo
 	dat, _ := ioutil.ReadFile("./static/logo.txt")
 	fmt.Println(string(dat))
 
 	// Check whether user is providing certificates
+    fmt.Println(RuntimeArgs.ExternalIP);
 	if RuntimeArgs.Socket != "" {
 		r.RunUnix(RuntimeArgs.Socket)
 	} else if RuntimeArgs.ServerCRT != "" && RuntimeArgs.ServerKey != "" {
